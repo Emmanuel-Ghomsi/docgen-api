@@ -1,0 +1,14 @@
+services:
+  docgen:
+    container_name: docgen_api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./templates:/app/templates
+      - ./generated:/app/generated
+    restart: unless-stopped
