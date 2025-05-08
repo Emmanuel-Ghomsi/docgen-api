@@ -15,7 +15,7 @@ router = APIRouter()
 @router.post(
     "/generate",
     response_model=GenerateResponse,
-    summary="Générer un document à partir d’un modèle Word et lancer le téléchargement",
+    summary="Générer un document à partir d’un modèle Word et le convertir",
     description="""
     Remplit un modèle Word avec les données fournies et retourne un fichier converti en PDF, DOCX ou XLSX.
     
@@ -23,7 +23,7 @@ router = APIRouter()
     1. Envoi du template `.docx`
     2. Remplissage avec les données JSON
     3. Conversion dans le format souhaité
-    4. Téléchargement du fichier
+    4. Encodage en base64 du fichier (optionnel dans l'avenir)
     """,
     response_description="Fichier généré avec succès",
     status_code=status.HTTP_200_OK,
@@ -57,16 +57,66 @@ async def generate_document(
         # ✅ Étape 4 : Conversion
         output_path = ConvertService.convert(filled_docx_path, options_obj.format)
 
-        # ✅ Retourne une réponse de type fichier
+        # ✅ Étape 5 : Encodage base64
+        with open(output_path, "rb") as f:
+            encoded = base64.b64encode(f.read()).decode("utf-8")
+
+        filename = f"{uuid.uuid4()}.{options_obj.format}"
+
+        return GenerateResponse(
+            filename=filename,
+            content_base64=encoded,
+            message=f"Fichier généré avec succès au format {options_obj.format.upper()}."
+        )
+
+    except (DocxServiceError, ConvertServiceError) as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # ✅ Ne supprime PAS le fichier dans app/templates (il est persistant)
+        remove_files([p for p in [filled_docx_path, output_path] if p])
+        
+@router.post(
+    "/generate/download",
+    response_model=GenerateResponse,
+    summary="Générer un document à partir d’un modèle Word et lance automatiquement le téléchargement",
+    description="Remplit un modèle Word avec les données fournies et retourne un fichier converti en PDF, DOCX ou XLSX.",
+    response_description="Fichier généré avec succès",
+    status_code=status.HTTP_200_OK,
+)
+async def generate_document_download(
+    file: UploadFile = File(..., description="Fichier Word modèle (.docx)"),
+    options: str = Form(..., description="Paramètres : format, données, nom du fichier modèle")
+):
+    if not file.filename.endswith(".docx"):
+        raise HTTPException(status_code=422, detail="Le fichier doit être au format .docx")
+
+    try:
+        options_obj = GenerateRequest(**json.loads(options))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Erreur JSON : {str(e)}")
+
+    temp_template_path = filled_docx_path = output_path = None
+
+    try:
+        temp_template_path = save_uploaded_file(file, settings.TEMPLATE_DIR)
+        template_path = get_template_path(options_obj.template_filename)
+        filled_docx_path = DocxService.fill_template(template_path, options_obj.data)
+        output_path = ConvertService.convert(filled_docx_path, options_obj.format)
+
+        final_filename = f"{uuid.uuid4()}.{options_obj.format}"
+
+        # ✅ retourne un téléchargement direct
         return FileResponse(
             output_path,
-            filename=f"{uuid.uuid4()}.{options_obj.format}",
+            filename=final_filename,
             media_type="application/octet-stream"
         )
 
     except (DocxServiceError, ConvertServiceError) as e:
         raise HTTPException(status_code=500, detail=str(e))
-        
+
+    finally:
+        remove_files([p for p in [filled_docx_path] if p]) 
 
 @router.get("/health", tags=["Monitoring"])
 def health_check():
