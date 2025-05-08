@@ -1,5 +1,4 @@
 import os
-import platform
 import tempfile
 import subprocess
 from typing import Literal
@@ -20,23 +19,13 @@ class ConvertService:
             base_name = os.path.splitext(os.path.basename(input_path))[0]
             output_path = os.path.join(output_dir, f"{base_name}.{output_format}")
 
-            if platform.system() == "Windows":
-                # Utilise LibreOffice en ligne de commande
-                command = [
-                    "soffice",
-                    "--headless",
-                    "--convert-to", output_format,
-                    "--outdir", output_dir,
-                    input_path
-                ]
-            else:
-                # Utilise unoconv sur Linux
-                command = [
-                    "unoconv",
-                    "-f", output_format,
-                    "-o", output_dir,
-                    input_path
-                ]
+            command = [
+                "soffice",
+                "--headless",
+                "--convert-to", output_format,
+                "--outdir", output_dir,
+                input_path
+            ]
 
             result = subprocess.run(
                 command,
@@ -47,18 +36,19 @@ class ConvertService:
 
             if not os.path.exists(output_path):
                 raise ConvertServiceError(
-                    f"Le fichier converti est introuvable après la conversion.\nCommande : {' '.join(command)}"
+                    f"Le fichier converti est introuvable : {output_path}\nCommande : {' '.join(command)}"
                 )
 
             return output_path
 
-        except FileNotFoundError as e:
+        except FileNotFoundError:
             raise ConvertServiceError(
-                f"Commande introuvable : {command[0]}\nAssure-toi que le programme est installé et accessible via PATH."
+                "LibreOffice (soffice) n'est pas installé ou accessible via PATH.\n"
+                "Assure-toi d'avoir installé LibreOffice, puis ajoute le dossier `program/` dans le PATH."
             )
 
         except subprocess.CalledProcessError as e:
             raise ConvertServiceError(
-                f"Erreur lors de l'exécution de la commande : {' '.join(command)}\n"
-                f"stderr: {e.stderr.decode().strip() if e.stderr else str(e)}"
+                f"Erreur lors de la conversion avec soffice :\n"
+                f"{e.stderr.decode().strip() if e.stderr else str(e)}"
             )
